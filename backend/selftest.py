@@ -49,6 +49,7 @@ def run_all():
     _test_functions_recursion()
     _test_control_flow()
     _test_lists()
+    _test_minmax()
     _test_runtime_errors()
     _test_debugger()
     _test_profiler()
@@ -134,6 +135,32 @@ def _test_lists():
     out = _run(src)
     ok = out.get("ok") and out["output"] == ["4 99 4"]
     _check("解释器：列表构建/下标/len/push", ok, str(out.get("output")))
+
+
+def _test_minmax():
+    src = ("print(min([3, 1, 2]));\n"
+           "print(max([3, 1, 2]));\n"
+           "print(min(3, 1, 2));\n"
+           "print(max(3, 1, 2));\n"
+           'print(min(["b", "a"]));')
+    out = _run(src)
+    ok = out.get("ok") and out["output"] == ["1", "3", "1", "3", "a"]
+    _check("解释器：min/max 区分单列表与多标量参数", ok, str(out.get("output")))
+
+    empty = _run("print(min([]));")
+    empty_ok = empty.get("error") is not None and "空列表" in empty["error"].get("message", "")
+    _check("解释器：min 空列表产生明确诊断", empty_ok, str(empty.get("error")))
+
+    invalid = _run("print(max([1, \"x\"]));")
+    invalid_ok = invalid.get("error") is not None and invalid["error"].get("kind") == "type"
+    _check("解释器：min/max 非法元素类型产生类型诊断", invalid_ok, str(invalid.get("error")))
+
+    compiled = compiler.compile_source("print(min());")
+    arity_errors = compiled.diagnostics.errors()
+    arity_ok = any("至少 1 个参数" in e.message and "实际传入 0 个" in e.message
+                   for e in arity_errors)
+    _check("语义分析：min/max 参数个数与运行时签名一致", arity_ok,
+           str([e.message for e in arity_errors]))
 
 
 def _test_runtime_errors():

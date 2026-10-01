@@ -21,12 +21,13 @@ from .diagnostics import (
     warning_unused, warning_shadowing,
 )
 
-# 内置函数及其签名（名称 -> 参数个数或 None 表示变长）
+# 内置函数及其签名：整数表示固定参数个数；(最小个数, 最大个数) 表示变长参数，
+# 最大个数为 None 时不设上限；None 表示不做静态参数个数检查。
 BUILTIN_SIGNATURES = {
     "print": None, "len": 1, "push": 2, "pop": 1, "type": 1,
-    "str": 1, "int": 1, "float": 1, "range": None, "abs": 1,
-    "min": 2, "max": 2, "sqrt": 1, "floor": 1, "ceil": 1,
-    "round": None, "input": 0, "time": 0, "random": 0, "exit": 0,
+    "str": 1, "int": 1, "float": 1, "range": (1, 3), "abs": 1,
+    "min": (1, None), "max": (1, None), "sqrt": 1, "floor": 1, "ceil": 1,
+    "round": (1, 2), "input": 0, "time": 0, "random": 0, "exit": (0, 1),
 }
 
 # 运算符返回类型表（用于简单的类型推断）
@@ -38,6 +39,20 @@ def _numeric_promote(a, b):
     if a in _NUMERIC and b in _NUMERIC:
         return sym.TYPE_INT
     return sym.TYPE_UNKNOWN
+
+
+def _builtin_arity_mismatch(sig, argc):
+    """返回静态签名允许的参数个数描述；不匹配时返回 None。"""
+    if sig is None:
+        return None
+    if isinstance(sig, int):
+        return None if argc == sig else str(sig)
+    minimum, maximum = sig
+    if argc < minimum:
+        return f"至少 {minimum}"
+    if maximum is not None and argc > maximum:
+        return f"至多 {maximum}"
+    return None
 
 
 class SemanticAnalyzer:
@@ -320,10 +335,10 @@ class SemanticAnalyzer:
             e.callee.symbol = s
             e.callee.expr_type = sym.TYPE_FUNC
             if s.kind == sym.KIND_BUILTIN:
-                sig = BUILTIN_SIGNATURES.get(name)
-                if sig is not None and len(e.args) != sig:
+                expected = _builtin_arity_mismatch(BUILTIN_SIGNATURES.get(name), len(e.args))
+                if expected is not None:
                     self.diagnostics.add(semantic_wrong_arity(
-                        name, sig, len(e.args), e.line, e.column, self._line(e)))
+                        name, expected, len(e.args), e.line, e.column, self._line(e)))
                 e.expr_type = sym.TYPE_UNKNOWN  # 内置函数返回类型视函数而定
                 return e.expr_type
             if s.kind == sym.KIND_FUNCTION:
