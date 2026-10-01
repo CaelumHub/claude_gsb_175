@@ -49,6 +49,7 @@ def run_all():
     _test_functions_recursion()
     _test_control_flow()
     _test_lists()
+    _test_min_max()
     _test_runtime_errors()
     _test_debugger()
     _test_profiler()
@@ -134,6 +135,33 @@ def _test_lists():
     out = _run(src)
     ok = out.get("ok") and out["output"] == ["4 99 4"]
     _check("解释器：列表构建/下标/len/push", ok, str(out.get("output")))
+
+
+def _test_min_max():
+    src = ("var a = [3, 1, 2];\n"
+           "print(min(a), max(a));\n"
+           "print(min(3, 1, 2), max(3, 1, 2));")
+    out = _run(src)
+    ok = out.get("ok") and out["output"] == ["1 3", "1 3"]
+    _check("解释器：min/max 区分单列表与多标量参数", ok, str(out.get("output")))
+
+    empty = _run("print(min([]));")
+    empty_ok = empty.get("error") is not None and "空列表" in empty["error"].get("message", "")
+    _check("运行时错误：min/max 空列表给出诊断", empty_ok, str(empty.get("error")))
+
+    bad_scalar = _run("print(max(1));")
+    scalar_ok = bad_scalar.get("error") is not None and "非空列表" in bad_scalar["error"].get("message", "")
+    _check("运行时错误：min/max 单个非标量参数给出诊断", scalar_ok, str(bad_scalar.get("error")))
+
+    bad_item = _run("print(min([1, \"x\"]));")
+    item_ok = bad_item.get("error") is not None and "可比较" in bad_item["error"].get("message", "")
+    _check("运行时错误：min/max 非法元素类型给出诊断", item_ok, str(bad_item.get("error")))
+
+    no_args = compiler.compile_source("print(min());")
+    arity_ok = any("至少需要 1 个参数" in e.message and "传入了 0 个" in e.message
+                   for e in no_args.diagnostics.errors())
+    _check("语义错误：min/max 缺少参数与普通参数个数诊断一致", arity_ok,
+           str([e.message for e in no_args.diagnostics.errors()]) if not arity_ok else "")
 
 
 def _test_runtime_errors():

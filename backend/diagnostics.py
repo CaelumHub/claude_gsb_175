@@ -218,12 +218,45 @@ def semantic_redeclared(name, prev_line, line, col, source_line):
 
 
 def semantic_wrong_arity(name, expected, got, line, col, source_line):
+    if isinstance(expected, tuple):
+        minimum, maximum = expected
+        if minimum is not None and got < minimum:
+            message = f"函数 {name!r} 至少需要 {minimum} 个参数，但传入了 {got} 个"
+            fix = f"至少补充 {minimum - got} 个实参后再调用 {name!r}。"
+        elif maximum is not None and got > maximum:
+            message = f"函数 {name!r} 最多接受 {maximum} 个参数，但传入了 {got} 个"
+            fix = f"删除 {got - maximum} 个多余实参后再调用 {name!r}。"
+        else:  # pragma: no cover - 调用方应先确认越界
+            message = f"函数 {name!r} 的参数个数不合法，传入了 {got} 个"
+            fix = f"检查 {name!r} 的调用形式。"
+    else:
+        message = f"函数 {name!r} 需要 {expected} 个参数，但传入了 {got} 个"
+        fix = f"调整调用处的实参个数为 {expected} 个，或修改函数定义。"
     return Diagnostic(
         SEVERITY_ERROR, PHASE_SEMANTIC, KIND_ARITY,
-        f"函数 {name!r} 需要 {got} 个参数，但传入了 {expected} 个",
-        line, col, 1, line, col + 1,
-        f"调整调用处的实参个数为 {expected} 个，或修改函数定义。",
-        None, source_line)
+        message, line, col, 1, line, col + 1,
+        fix, None, source_line)
+
+
+def runtime_wrong_arity(name, expected, got, line, col, source_line):
+    if isinstance(expected, tuple):
+        minimum, maximum = expected
+        if minimum is not None and got < minimum:
+            message = f"函数 {name!r} 至少需要 {minimum} 个参数，但传入了 {got} 个"
+            fix = f"至少补充 {minimum - got} 个实参后再调用 {name!r}。"
+        elif maximum is not None and got > maximum:
+            message = f"函数 {name!r} 最多接受 {maximum} 个参数，但传入了 {got} 个"
+            fix = f"删除 {got - maximum} 个多余实参后再调用 {name!r}。"
+        else:  # pragma: no cover - 调用方应先确认越界
+            message = f"函数 {name!r} 的参数个数不合法，传入了 {got} 个"
+            fix = f"检查 {name!r} 的调用形式。"
+    else:
+        message = f"函数 {name!r} 需要 {expected} 个参数，但传入了 {got} 个"
+        fix = f"调整调用处的实参个数为 {expected} 个，或修改函数定义。"
+    return Diagnostic(
+        SEVERITY_ERROR, PHASE_RUNTIME, KIND_ARITY,
+        message, line, col, 1, line, col + 1,
+        fix, None, source_line)
 
 
 def semantic_type_mismatch(op, left, right, line, col, source_line):
@@ -257,6 +290,15 @@ def runtime_index_out_of_range(idx, length, line, col, source_line):
         f"下标 {idx} 越界：列表长度为 {length}，有效下标是 0..{length - 1}",
         line, col, 1, line, col + 1,
         f"把下标限制在 0..{length - 1} 范围内，或用 len() 先判断。",
+        None, source_line)
+
+
+def runtime_empty_sequence(line, col, source_line):
+    return Diagnostic(
+        SEVERITY_ERROR, PHASE_RUNTIME, KIND_RUNTIME,
+        "不能对空列表求最小值或最大值",
+        line, col, 1, line, col + 1,
+        "先用 len() 判断列表长度，或确保列表中至少有一个元素。",
         None, source_line)
 
 

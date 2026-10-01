@@ -106,18 +106,18 @@ class VM:
         b["str"] = rt.BuiltinFunction("str", self._bi_str, 1)
         b["int"] = rt.BuiltinFunction("int", self._bi_int, 1)
         b["float"] = rt.BuiltinFunction("float", self._bi_float, 1)
-        b["range"] = rt.BuiltinFunction("range", self._bi_range, None)
+        b["range"] = rt.BuiltinFunction("range", self._bi_range, None, min_arity=1, max_arity=3)
         b["abs"] = rt.BuiltinFunction("abs", self._bi_abs, 1)
         b["min"] = rt.BuiltinFunction("min", self._bi_min, None, min_arity=1)
         b["max"] = rt.BuiltinFunction("max", self._bi_max, None, min_arity=1)
         b["sqrt"] = rt.BuiltinFunction("sqrt", self._bi_sqrt, 1)
         b["floor"] = rt.BuiltinFunction("floor", self._bi_floor, 1)
         b["ceil"] = rt.BuiltinFunction("ceil", self._bi_ceil, 1)
-        b["round"] = rt.BuiltinFunction("round", self._bi_round, None, min_arity=1)
+        b["round"] = rt.BuiltinFunction("round", self._bi_round, None, min_arity=1, max_arity=2)
         b["input"] = rt.BuiltinFunction("input", self._bi_input, 0)
         b["time"] = rt.BuiltinFunction("time", self._bi_time, 0)
         b["random"] = rt.BuiltinFunction("random", self._bi_random, 0)
-        b["exit"] = rt.BuiltinFunction("exit", self._bi_exit, None, min_arity=0)
+        b["exit"] = rt.BuiltinFunction("exit", self._bi_exit, None, min_arity=0, max_arity=1)
         self.builtins = b
 
     # ------------------------------------------------------------------
@@ -422,6 +422,7 @@ class VM:
         args.reverse()
         callee = frame.stack.pop()
         if isinstance(callee, rt.BuiltinFunction):
+            self._check_builtin_arity(callee, argc, ins)
             if self.profiler:
                 self.profiler.function_enter("builtin:" + callee.name)
             try:
@@ -438,9 +439,20 @@ class VM:
             return
         self._type_error(ins, "函数", rt.type_name(callee))
 
+    def _check_builtin_arity(self, callee, argc, ins):
+        if callee.arity is not None:
+            valid, expected = argc == callee.arity, callee.arity
+        else:
+            valid = ((callee.min_arity is None or argc >= callee.min_arity) and
+                     (callee.max_arity is None or argc <= callee.max_arity))
+            expected = (callee.min_arity, callee.max_arity)
+        if not valid:
+            self._runtime_error(diag.runtime_wrong_arity(
+                callee.name, expected, argc, ins.line, 1, self._line(ins.line)))
+
     def _call_user(self, ins, frame, func, args):
         if len(args) != func.arity:
-            self._runtime_error(diag.semantic_wrong_arity(
+            self._runtime_error(diag.runtime_wrong_arity(
                 func.name, func.arity, len(args), ins.line, 1, self._line(ins.line)))
         if len(self.frames) >= self.max_call_depth:
             self._runtime_error(diag.runtime_stack_overflow(
@@ -596,18 +608,59 @@ class VM:
             start, stop = args
         elif len(args) == 3:
             start, stop, step = args
-        else:
-            self._builtin_type_error("1~3 个参数", str(len(args)))
         return self.heap.allocate_list(list(range(start, stop + 1, step)))
 
     def _bi_abs(self, args):
         return abs(args[0])
 
     def _bi_min(self, args):
-        return min(args)
+        return self._bi_min_max(args, True)
 
     def _bi_max(self, args):
-        return max(args)
+        return self._bi_min_max(args, False)
+
+    def _bi_min_max(self, args, choose_min):
+        name = "min" if choose_min else "max"
+        if len(args) == 1:
+            container = args[0]
+            if not isinstance(container, rt.RuntimeList):
+                self._builtin_type_error(
+                    f"非空列表（单参数形式：{name}([...])）",
+                    rt.type_name(container))
+            values = container.items
+        else:
+            values = args
+
+        if not values:
+            line = self._cur_line or 1
+            self._runtime_error(diag.runtime_empty_sequence(
+                line, 1, self._line(line)))
+
+        def comparable_kind(v):
+            if isinstance(v, (int, float)):
+                return "number"
+            if isinstance(v, (str, rt.RuntimeString)):
+                return "string"
+            return None
+
+        kinds = {comparable_kind(v) for v in values}
+        if None in kinds or len(kinds) > 1:
+            self._builtin_type_error(
+                "互相可比较的数字或字符串",
+                "、".join(rt.type_name(v) for v in values))
+
+        kind = "string" if isinstance(values[0], (str, rt.RuntimeString)) else "number"
+
+        def key_for(v):
+            return _to_py_str(v) if kind == "string" else v
+
+        result = values[0]
+        result_key = key_for(result)
+        for value in values[1:]:
+            value_key = key_for(value)
+            if (value_key < result_key) if choose_min else (value_key > result_key):
+                result, result_key = value, value_key
+        return result
 
     def _bi_sqrt(self, args):
         return math.sqrt(args[0])
